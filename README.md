@@ -5,7 +5,7 @@ Import `CSV` files into `Postgres` database
 ## Install
 
 ```bash
-go get -u github.com/eduardonunes/csv2pg
+go get -u github.com/eduardonunesp/csv2pg
 ```
 
 ## Usage
@@ -17,10 +17,13 @@ Usage:
 Flags:
   -B, --db string          postgres database
   -d, --delimiter string   csv delimiter char (default ",")
+  -f, --force              force command to run and drop table if needed
   -h, --help               help for csv2pg
   -H, --host string        postgres host (default "localhost")
   -W, --passwd string      postgres user password (default ",")
   -P, --port string        postgres port (default "5432")
+  -S, --schema string      postgres schema (default "public")
+  -M, --sslmode string     postgres SSL mode (default "disable")
   -U, --user string        postgres user (default "postgres")
   -v, --verbose            verbose output
 ```

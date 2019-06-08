@@ -18,12 +18,32 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	verboseFlag   bool
+	forceFlag     bool
+	delimiterFlag string
+	hostFlag      string
+	portFlag      string
+	userFlag      string
+	dbFlag        string
+	passwdFlag    string
+	sslModeFlag   string
+	schemaFlag    string
+)
+
 func dbConnect() (*sql.DB, error) {
-	sslMode := "?sslmode=disable"
+	sslMode := fmt.Sprintf("?sslmode=%s", sslModeFlag)
+	schema := fmt.Sprintf("&search_path=%s", schemaFlag)
 
 	connStr := fmt.Sprintf(
-		"postgres://%s:%s@%s:%s/%s%s",
-		userFlag, passwdFlag, hostFlag, portFlag, dbFlag, sslMode,
+		"postgres://%s:%s@%s:%s/%s%s%s",
+		userFlag,
+		passwdFlag,
+		hostFlag,
+		portFlag,
+		dbFlag,
+		sslMode,
+		schema,
 	)
 
 	db, err := sql.Open("postgres", connStr)
@@ -48,10 +68,13 @@ func normalizeHeader(header string) string {
 	return normalizedHeader
 }
 
-func normalizeColumn(column string) string {
+func normalizeColumn(header, column string) string {
 	if column == "" {
 		return "''"
 	} else if !unicode.IsPrint(rune(column[0])) {
+		if verboseFlag {
+			fmt.Printf("Invalid value found on column %s we're going to ignore it\n", header)
+		}
 		return "''"
 	} else {
 		column = strings.Replace(column, "'", "''", -1)
@@ -62,6 +85,8 @@ func normalizeColumn(column string) string {
 func createTable(tx *sql.Tx, fileName string, headers []string) error {
 	var fields []string
 	tableName := removeFilenameExt(fileName)
+
+	fmt.Printf("Creating table '%s' with headers %s\n", tableName, headers)
 
 	for _, header := range headers {
 		fields = append(fields, fmt.Sprintf("%s TEXT", normalizeHeader(header)))
@@ -91,8 +116,9 @@ func insertTable(tx *sql.Tx, fileName string, headers, lines []string) error {
 		fields = append(fields, normalizeHeader(header))
 	}
 
-	for _, col := range lines {
-		rows = append(rows, normalizeColumn(col))
+	for i, col := range lines {
+		header := headers[i]
+		rows = append(rows, normalizeColumn(header, col))
 	}
 
 	sqlString := fmt.Sprintf(`INSERT INTO %s(%s) VALUES (%s)`,
@@ -113,14 +139,6 @@ func dropTable(db *sql.DB, fileName string) error {
 	fmt.Printf("Droping table %s\n", tableName)
 	return err
 }
-
-var verboseFlag bool
-var delimiterFlag string
-var hostFlag string
-var portFlag string
-var userFlag string
-var dbFlag string
-var passwdFlag string
 
 func Execute() {
 	rootCmd := &cobra.Command{
@@ -156,44 +174,63 @@ func Execute() {
 			}
 
 			fileName := path.Base(args[0])
-			err = createTable(tx, fileName, headers)
 
-			if err != nil {
-				tx.Rollback()
+			if forceFlag {
+				if err := dropTable(db, fileName); err != nil {
+					return err
+				}
+			}
+
+			if err := createTable(tx, fileName, headers); err != nil {
+				if err := tx.Rollback(); err != nil {
+					return err
+				}
+
 				return err
 			}
 
-			err = tx.Commit()
-
-			if err != nil {
+			if err := tx.Commit(); err != nil {
 				tx.Rollback()
 				return err
 			}
 
 			tx, err = db.Begin()
+
 			for {
 				line, err := reader.Read()
 
 				if err == io.EOF {
 					break
 				} else if err != nil {
-					tx.Rollback()
+					if err := tx.Rollback(); err != nil {
+						return err
+					}
+
 					return err
 				}
 
-				err = insertTable(tx, fileName, headers, line)
-				if err != nil {
-					tx.Rollback()
-					dropTable(db, fileName)
+				if err := insertTable(tx, fileName, headers, line); err != nil {
+					if err := tx.Rollback(); err != nil {
+						return err
+					}
+
+					if err := dropTable(db, fileName); err != nil {
+						return err
+					}
+
 					return err
 				}
 			}
 
-			err = tx.Commit()
+			if err := tx.Commit(); err != nil {
+				if err := tx.Rollback(); err != nil {
+					return err
+				}
 
-			if err != nil {
-				tx.Rollback()
-				dropTable(db, fileName)
+				if err := dropTable(db, fileName); err != nil {
+					return err
+				}
+
 				return err
 			}
 
@@ -204,6 +241,7 @@ func Execute() {
 	}
 
 	rootCmd.Flags().BoolVarP(&verboseFlag, "verbose", "v", false, "verbose output")
+	rootCmd.Flags().BoolVarP(&forceFlag, "force", "f", false, "force command to run and drop table if needed")
 	rootCmd.Flags().StringVarP(&delimiterFlag, "delimiter", "d", ",", "csv delimiter char")
 
 	rootCmd.Flags().StringVarP(&hostFlag, "host", "H", "localhost", "postgres host")
@@ -211,6 +249,8 @@ func Execute() {
 	rootCmd.Flags().StringVarP(&userFlag, "user", "U", "postgres", "postgres user")
 	rootCmd.Flags().StringVarP(&dbFlag, "db", "B", "", "postgres database")
 	rootCmd.Flags().StringVarP(&passwdFlag, "passwd", "W", ",", "postgres user password")
+	rootCmd.Flags().StringVarP(&schemaFlag, "schema", "S", "public", "postgres schema")
+	rootCmd.Flags().StringVarP(&sslModeFlag, "sslmode", "M", "disable", "postgres SSL mode")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
