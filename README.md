@@ -5,7 +5,7 @@ Import `CSV` files into `Postgres` database
 ## Install
 
 ```bash
-go get -u github.com/eduardonunesp/csv2pg
+go install github.com/eduardonunesp/csv2pg@latest
 ```
 
 ## Usage
