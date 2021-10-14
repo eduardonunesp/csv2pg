@@ -31,6 +31,12 @@ Flags:
 Example
 
 ```bash
+# delimiter is -d ";"
+# host is -H 192.168.99.100
+# user is -U postgres 
+# database is -B database
+# also you can pass the flag -W for the password
+
 $ csv2pg users.csv -d ";" -H 192.168.99.100 -U postgres -B mydatabase
 ```
 
